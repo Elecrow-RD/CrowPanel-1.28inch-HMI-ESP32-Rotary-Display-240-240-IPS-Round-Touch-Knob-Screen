@@ -1,0 +1,260 @@
+esphome:
+  name: 128-lvgl-interface                                                   # Set the ESPHome device name (unique ID)
+  friendly_name: 1.28_LVGL_Interface                                         # Set the friendly name displayed for the device
+  platformio_options:                                                        # PlatformIO build options
+    build_flags: "-DBOARD_HAS_PSRAM"                                         # Enable PSRAM support for the board
+    board_build.esp-idf.memory_type: qio_opi                                 # Set the flash/PSRAM memory mode to QIO_OPI
+    board_build.flash_mode: dio                                              # Set flash mode to DIO
+
+  on_boot:                                                                   # Execute actions when the device boots
+    priority: 800                                                            # Boot priority; higher values run earlier
+    then:                                                                    # Sequential boot action list
+      - logger.log: "Backlight ON"                                           # Print boot information to the serial log
+      - output.turn_on: gpio_3_backlight_pwm                                 # Turn on the backlight PWM output
+      - delay: 200ms                                                         # Wait 200 ms for hardware stabilization
+      - output.turn_off: power_light                                         # Turn off the power indicator LED
+      - output.turn_on: out1                                                 # Turn on custom GPIO output out1
+      - output.turn_on: out2                                                 # Turn on custom GPIO output out2
+      - delay: 500ms                                                         # Wait 500 ms for peripheral initialization
+
+      - lambda: |-
+          id(encoder_ready) = false;                                         // Set encoder status to not ready
+          id(brightness_value) = 50;                                         // Initialize brightness value to 50 (0-100 range)
+          id(knob).publish_state(0);                                         // Reset rotary encoder state to 0
+
+      - light.turn_on:                                                       # Turn on the backlight light component
+          id: back_light                                                     # Target backlight light component ID
+          brightness: 0.5                                                    # Set initial backlight brightness to 50%
+
+      - lambda: |-
+          lv_arc_set_value(id(arc_brightness), id(brightness_value));        // Set the LVGL arc value to the current brightness
+          char buf[10];                                                      // Create a character buffer for the percentage string
+          snprintf(buf, sizeof(buf), "%d%%", id(brightness_value));          // Format brightness as an "X%" string
+          lv_label_set_text(id(lbl_brightness), buf);                        // Update the brightness label with the formatted string
+          lv_refr_now(NULL);                                                 // Refresh the LVGL display immediately
+
+      - delay: 200ms                                                         # Wait 200 ms before enabling normal encoder operation
+      - lambda: |-
+          id(encoder_ready) = true;                                          // Set encoder status to ready for normal operation
+
+esp32:                                                                       # ESP32 chip core configuration
+  board: esp32-s3-devkitc-1                                                  # Specify the ESP32-S3 DevKitC-1 board
+  framework:                                                                 # Configure the ESP32 framework
+    type: esp-idf                                                            # Use the ESP-IDF framework
+    version: recommended                                                     # Use the recommended ESP-IDF version
+
+psram:                                                                       # Configure external PSRAM for LVGL rendering
+  mode: octal                                                                # Set PSRAM to octal mode (8-bit data bus)
+  speed: 80MHz                                                               # Set PSRAM clock speed to 80 MHz
+
+# Enable logging
+logger:                                                                      # Serial logging configuration
+  level: VERY_VERBOSE                                                        # Set the log level to VERY_VERBOSE for detailed logging
+
+# Enable Home Assistant API
+api:                                                                         # ESPHome API for Home Assistant communication
+  encryption:                                                                # Enable API encryption
+    key: "MzSI3XFDkWIC7i1Mvw15+GEev/FIqiSOR2Dd++3Gd5I="                   # API encryption key
+
+ota:                                                                         # Over-The-Air firmware update configuration
+  - platform: esphome                                                        # Use the ESPHome OTA platform
+    password: "6d52ed56242d7b039362412472cd405c"                           # OTA authentication password
+
+wifi:                                                                        # Wi-Fi network connection configuration
+  ssid: !secret wifi_ssid                                                    # WiFi SSID (from secrets.yaml)
+  password: !secret wifi_password                                            # WiFi password (from secrets.yaml)
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:                                                                        # Fallback access point when Wi-Fi connection fails
+    ssid: "128-Lvgl-Interface"                                               # Fallback AP SSID
+    password: "fTimyu5hdyFb"                                                # Fallback AP password
+
+captive_portal:                                                              # Enable the captive portal for web-based AP configuration
+
+globals:                                                                     # Define global variables for custom ESPHome logic
+  - id: brightness_value                                                     # Global variable ID for backlight brightness
+    type: int                                                                # Variable data type: integer
+    restore_value: false                                                     # Do not restore the value after reboot
+    initial_value: "50"                                                      # Initial brightness value: 50 (0-100 range)
+
+  - id: encoder_ready                                                        # Global variable ID for encoder status
+    type: bool                                                               # Variable data type: boolean
+    restore_value: false                                                     # Do not restore the value after reboot
+    initial_value: "false"                                                   # Initial encoder status: not ready
+
+output:                                                                      # Define output components for hardware control
+  - platform: ledc                                                           # Use the ESP32 LEDC PWM platform
+    pin: GPIO46                                                              # PWM output pin for the screen backlight
+    id: gpio_3_backlight_pwm                                                 # Unique ID for the backlight PWM output
+    frequency: 5000Hz                                                        # Set PWM frequency to 5000 Hz
+
+  - platform: gpio                                                           # Use the GPIO digital output platform
+    id: power_light                                                          # Unique ID for the power indicator LED
+    pin: GPIO40                                                              # GPIO pin for the power indicator LED
+
+  - platform: gpio                                                           # Use the GPIO digital output platform
+    id: out1                                                                 # Unique ID for custom GPIO output 1
+    pin: GPIO1                                                               # GPIO pin for custom output 1
+
+  - platform: gpio                                                           # Use the GPIO digital output platform
+    id: out2                                                                 # Unique ID for custom GPIO output 2
+    pin: GPIO2                                                               # GPIO pin for custom output 2
+
+light:                                                                       # Define the ESPHome light component
+  - platform: monochromatic                                                  # Use a monochromatic light component for brightness control
+    name: "Backlight"                                                        # Light name displayed in Home Assistant
+    output: gpio_3_backlight_pwm                                             # Link to the backlight PWM output
+    id: back_light                                                           # Unique ID for the backlight light component
+    restore_mode: ALWAYS_ON                                                  # Always turn on the backlight after reboot
+
+sensor:                                                                      # Define sensor components
+  - platform: rotary_encoder                                                 # Use the rotary encoder sensor platform
+    id: knob                                                                 # Unique ID for the rotary encoder sensor
+    name: "Encoder"                                                          # Encoder name displayed in Home Assistant
+    pin_a:                                                                   # Encoder A-phase pin configuration
+      number: 45                                                             # A-phase GPIO pin number
+      mode:                                                                  # Configure pin mode
+        input: true                                                          # Configure the pin as an input
+        pullup: true                                                         # Enable the internal pull-up resistor
+    pin_b:                                                                   # Encoder B-phase pin configuration
+      number: 42                                                             # B-phase GPIO pin number
+      mode:                                                                  # Configure pin mode
+        input: true                                                          # Configure the pin as an input
+        pullup: true                                                         # Enable the internal pull-up resistor
+    resolution: 1                                                            # Set encoder resolution to 1
+
+    filters:                                                                 # Configure filters for the encoder signal
+      - debounce: 20ms                                                       # Debounce for 20 ms to filter signal jitter
+      - lambda: return round(x);                                             # Round the encoder state value to the nearest integer
+
+    on_value:                                                                # Trigger actions when the encoder state changes
+      then:
+        - lambda: |-
+            if (!id(encoder_ready)) return;                                  // Exit if the encoder is not ready
+            static bool first_run = true;                                    // Static flag for the first encoder trigger
+            static int last_encoder = 0;                                     // Store the previous encoder state
+            int current = (int) id(knob).state;                              // Get the current encoder state and convert it to int
+
+            if (first_run) {                                                 // Initialize the baseline on the first encoder trigger
+              last_encoder = current;                                        // Set the baseline to the current encoder value
+              first_run = false;                                             // Mark the first encoder trigger as completed
+              return;                                                        // Exit without changing brightness
+            }
+
+            int delta = current - last_encoder;                              // Calculate the change in encoder state
+            last_encoder = current;                                          // Update the previous encoder state
+            if (delta == 0) return;                                          // Exit if there is no change in encoder state
+
+            if (delta < 0) {                                                 // Decrease brightness when delta is negative
+              id(brightness_value) -= 5;                                     // Decrease brightness by 5
+            } else {                                                         // Increase brightness when delta is non-negative
+              id(brightness_value) += 5;                                     // Increase brightness by 5
+            }
+
+            if (id(brightness_value) < 0) id(brightness_value) = 0;          // Limit brightness to a minimum of 0
+            if (id(brightness_value) > 100) id(brightness_value) = 100;      // Limit brightness to a maximum of 100
+
+            float level = id(brightness_value) / 100.0f;                     // Convert 0-100 brightness to a 0.0-1.0 PWM level
+            id(gpio_3_backlight_pwm).set_level(level);                       // Set the backlight PWM output level
+
+            lv_arc_set_value(id(arc_brightness), id(brightness_value));      // Update the LVGL brightness arc
+            char buf[10];                                                    // Create a character buffer for the percentage string
+            snprintf(buf, sizeof(buf), "%d%%", id(brightness_value));        // Format brightness as an "X%" string
+            lv_label_set_text(id(lbl_brightness), buf);                      // Update the center label with the new percentage
+            lv_refr_now(NULL);                                               // Refresh the LVGL display immediately
+
+# ================= Fonts & Images (LVGL Resources) =================
+font:                                                                        # Define fonts for the LVGL display interface
+  - file: "gfonts://Montserrat"                                              # Load the Montserrat font from Google Fonts
+    id: montserrat_20                                                        # Unique ID for the 20 px Montserrat font
+    size: 20                                                                 # Set font size to 20 px
+  - file: "gfonts://Montserrat"                                              # Load the Montserrat font from Google Fonts
+    id: montserrat_36                                                        # Unique ID for the 36 px Montserrat font
+    size: 36                                                                 # Set font size to 36 px
+  - file: "gfonts://Montserrat"                                              # Load the Montserrat font from Google Fonts
+    id: montserrat_14                                                        # Unique ID for the 14 px Montserrat font
+    size: 14                                                                 # Set font size to 14 px
+  - file: "gfonts://Montserrat"                                              # Load the Montserrat font from Google Fonts
+    id: montserrat_12                                                        # Unique ID for the 12 px Montserrat font
+    size: 12                                                                 # Set font size to 12 px
+    
+image:                                                                       # Define images for the LVGL display interface
+  - file: "bj_light_128_1.png"                                               # Load the background image from the local configuration folder
+    id: img_bg_light                                                         # Unique ID for the background image
+    resize: 240x240                                                          # Resize the image to 240x240
+    type: RGB565                                                             # Set image color format to RGB565
+
+spi:                                                                         # Define the SPI bus for display communication
+  id: spi_bus                                                                # Unique ID for the SPI bus
+  mosi_pin: 11                                                               # SPI MOSI data pin (GPIO11)
+  clk_pin: 10                                                                # SPI clock pin (GPIO10)
+
+display:                                                                     # Define the display component for the 1.28-inch round display
+  - platform: ili9xxx                                                        # Use the ILI9XXX driver for the GC9A01A display
+    id: round_display                                                        # Unique ID for the round display
+    model: GC9A01A                                                           # Specify the GC9A01A display model
+    cs_pin: GPIO9                                                            # SPI CS (chip select) pin (GPIO9)
+    dc_pin: GPIO3                                                            # DC (data/command) pin (GPIO3)
+    reset_pin: GPIO14                                                        # Display hardware reset pin (GPIO14)
+    invert_colors: true                                                      # Invert display colors
+    show_test_card: false                                                    # Do not show the display test card on boot
+    rotation: 0                                                              # Set display rotation to 0 degrees
+    update_interval: 10ms                                                    # Set the display update interval to 10 ms
+
+lvgl:                                                                        # Configure the LVGL graphics library
+  displays:
+    - round_display                                                          # Associate LVGL with the round display
+  buffer_size: 50%                                                           # Set the LVGL buffer size to 50%
+
+  widgets:                                                                   # Define LVGL widgets in draw order (bottom to top)
+    - image:                                                                 # Background image widget
+        align: CENTER                                                        # Align the widget to the center of the screen
+        id: img_bg                                                           # Unique ID for the background image widget
+        src: img_bg_light                                                    # Use the preloaded background image
+        width: 240                                                           # Set image width to 240 px
+        height: 240                                                          # Set image height to 240 px
+        antialias: true                                                      # Enable image antialiasing
+
+    - label:                                                                 # Title label widget (Brightness)
+        align: CENTER                                                        # Align the label to the center of the screen
+        id: lbl_title                                                        # Unique ID for the title label
+        y: -40                                                               # Move the label 40 px upward from the center
+        text_font: montserrat_12                                             # Use the 12 px Montserrat font
+        text: "Brightness"                                                   # Label display text
+        text_color: 0xFFFFFF                                                 # Text color (white, RRGGBB hex)
+        text_opa: "100%"                                                     # Text opacity (100% = fully visible)
+
+    - arc:                                                                   # Brightness arc widget
+        align: CENTER                                                        # Align the arc to the center of the screen
+        id: arc_brightness                                                   # Unique ID for the brightness arc
+        value: 50                                                            # Initial arc value: 50
+        min_value: 0                                                         # Arc minimum value: 0
+        max_value: 100                                                       # Arc maximum value: 100
+        start_angle: 135                                                     # Arc start angle: 135 degrees
+        end_angle: 45                                                        # Arc end angle: 45 degrees
+        width: 160                                                           # Arc width: 160 px
+        height: 160                                                          # Arc height: 160 px
+
+        arc_color: 0x1A1A1A                                                  # Arc background color (dark gray, RRGGBB hex)
+        arc_width: 12                                                        # Arc background line width: 12 px
+        arc_rounded: true                                                    # Use rounded ends for the arc background
+
+        indicator:                                                           # Arc progress indicator
+          arc_color: 0x00D2FF                                                # Indicator color (sky blue, RRGGBB hex)
+          arc_width: 12                                                      # Indicator line width: 12 px
+          arc_rounded: true                                                  # Use rounded ends for the indicator
+
+        knob:                                                                # Arc indicator knob
+          bg_color: 0xFFFFFF                                                 # Knob background color (white)
+          bg_opa: "100%"                                                     # Knob opacity (100% = fully visible)
+          width: 20                                                          # Knob width: 20 px
+          height: 20                                                         # Knob height: 20 px
+          radius: 10                                                         # Knob radius: 10 px (circular knob)
+
+    - label:                                                                 # Brightness percentage label (top layer)
+        align: CENTER                                                        # Align the label to the center of the screen
+        id: lbl_brightness                                                   # Unique ID for the brightness label
+        text_font: montserrat_36                                             # Use the 36 px Montserrat font
+        text: "50%"                                                          # Initial display text: 50%
+        text_color: 0xFFFFFF                                                 # Text color (white, RRGGBB hex)
+        text_opa: "100%"                                                     # Text opacity (100% = fully visible)
