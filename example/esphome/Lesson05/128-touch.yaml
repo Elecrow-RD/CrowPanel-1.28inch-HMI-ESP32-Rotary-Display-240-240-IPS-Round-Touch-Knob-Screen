@@ -1,0 +1,314 @@
+esphome:
+  name: 128-touch                                      # Set the ESPHome device name
+  friendly_name: 1.28 Touch                            # Set the friendly device name
+  platformio_options:                                  # Configure PlatformIO build options
+    build_flags: "-DBOARD_HAS_PSRAM"                   # Enable PSRAM support
+    board_build.esp-idf.memory_type: qio_opi            # Configure the ESP-IDF memory type
+    board_build.flash_mode: dio                         # Configure the flash mode
+  on_boot:                                              # Define actions executed during boot
+    priority: 800                                       # Set the boot execution priority
+    then:                                                # Start the boot action sequence
+      - logger.log: "Display backlight on"              # Log the backlight startup message
+      - output.turn_on: gpio_3_backlight_pwm            # Turn on the backlight PWM output
+      - delay: 200ms                                    # Wait for 200 ms
+      - output.turn_off: power_light                    # Turn off the power indicator
+      - output.turn_on: out1                            # Turn on output 1
+      - output.turn_on: out2                            # Turn on output 2
+      - light.turn_on:                                  # Turn on the display backlight
+          id: back_light                                # Select the display backlight
+          brightness: 50%                               # Set the initial brightness to 50%
+      - lambda: |-                                      # Initialize the encoder and brightness state
+          id(encoder_ready) = false;                    // Disable encoder processing during startup
+          id(brightness_value) = 50;                    // Set the initial brightness value to 50
+          id(knob).publish_state(0);                    // Reset the rotary encoder state
+      - delay: 500ms                                    # Wait for 500 ms
+      - lvgl.arc.update:                                 # Update the brightness arc
+          id: arc_brightness                             # Select the brightness arc
+          value: 50                                      # Set the arc value to 50
+      - lvgl.label.update:                              # Update the brightness label
+          id: lbl_brightness                             # Select the brightness label
+          text: "50%"                                    # Display the initial brightness value
+      - delay: 200ms                                    # Wait for 200 ms
+      - lambda: |-                                      # Complete encoder initialization
+          id(encoder_ready) = true;                     // Enable encoder processing
+
+esp32:
+  board: esp32-s3-devkitc-1                             # Select the ESP32-S3 development board
+  variant: esp32s3                                      # Select the ESP32-S3 variant
+  framework:                                             # Configure the development framework
+    type: esp-idf                                       # Use the ESP-IDF framework
+    version: recommended                                # Use the recommended ESP-IDF version
+
+psram:
+  mode: octal                                           # Use Octal PSRAM mode
+  speed: 80MHz                                          # Set the PSRAM speed to 80 MHz
+
+logger:
+  level: VERY_VERBOSE                                   # Enable very detailed logging
+
+api:
+  encryption:                                            # Enable API encryption
+    key: "VmY+BKq+nT9tNLvuVoLeMcQngJNXTG3fiFRMpI9ywmE=" # Set the API encryption key
+
+ota:
+  - platform: esphome                                   # Enable ESPHome OTA updates
+
+wifi:
+  ssid: !secret wifi_ssid                               # Load the Wi-Fi SSID from secrets
+  password: !secret wifi_password                       # Load the Wi-Fi password from secrets
+  ap:                                                    # Configure the fallback access point
+    ssid: "ThinkNode-G4-2a2d82"                          # Set the fallback AP SSID
+    password: "elecrow.com"                              # Set the fallback AP password
+
+captive_portal:                                          # Enable the captive portal
+
+i2c:
+  - id: touch_i2c_bus                                   # Define the I2C bus for the touchscreen
+    sda: GPIO6                                           # Set GPIO6 as the I2C SDA pin
+    scl: GPIO7                                           # Set GPIO7 as the I2C SCL pin
+    scan: true                                           # Enable I2C device scanning
+    frequency: 400kHz                                    # Set the I2C frequency to 400 kHz
+  - id: main_i2c_bus                                    # Define the main I2C bus
+    sda: GPIO38                                          # Set GPIO38 as the I2C SDA pin
+    scl: GPIO39                                          # Set GPIO39 as the I2C SCL pin
+    scan: true                                           # Enable I2C device scanning
+    frequency: 400kHz                                    # Set the I2C frequency to 400 kHz
+
+spi:
+  id: spi_bus                                            # Assign an ID to the SPI bus
+  mosi_pin: GPIO11                                      # Set GPIO11 as the SPI MOSI pin
+  clk_pin: GPIO10                                       # Set GPIO10 as the SPI clock pin
+
+display:
+  - platform: ili9xxx                                   # Use the ILI9xxx display platform
+    id: round_display                                   # Assign an ID to the display
+    model: GC9A01A                                      # Select the GC9A01A display controller
+    spi_id: spi_bus                                     # Use the configured SPI bus
+    cs_pin: GPIO9                                       # Set GPIO9 as the chip-select pin
+    dc_pin: GPIO3                                       # Set GPIO3 as the data/command pin
+    reset_pin: GPIO14                                   # Set GPIO14 as the display reset pin
+    invert_colors: true                                 # Invert the display colors
+    dimensions: 240x240                                 # Set the display resolution
+    auto_clear_enabled: false                            # Disable automatic display clearing
+    update_interval: never                               # Disable automatic display updates
+
+touchscreen:
+  - platform: cst816                                    # Use the CST816 touchscreen platform
+    id: my_touchscreen                                   # Assign an ID to the touchscreen
+    i2c_id: touch_i2c_bus                               # Use the touchscreen I2C bus
+    display: round_display                               # Associate the touchscreen with the display
+    
+    reset_pin: GPIO13                                    # Set GPIO13 as the touchscreen reset pin
+    skip_probe: true                                     # Skip touchscreen device probing
+    update_interval: 30ms                                # Update touchscreen data every 30 ms
+    calibration:                                         # Configure touchscreen calibration
+      x_min: 0                                           # Set the minimum X coordinate
+      x_max: 240                                         # Set the maximum X coordinate
+      y_min: 0                                           # Set the minimum Y coordinate
+      y_max: 240                                         # Set the maximum Y coordinate
+    transform:                                           # Configure touchscreen coordinate transformation
+      swap_xy: false                                     # Do not swap X and Y coordinates
+      mirror_x: false                                    # Do not mirror the X coordinate
+      mirror_y: false                                    # Do not mirror the Y coordinate
+    on_touch:                                            # Define actions when the screen is touched
+      - logger.log:                                      # Log the touch coordinates
+          format: "Touch x=%d y=%d raw_x=%d raw_y=%d"    # Define the touch log format
+          args: [touch.x, touch.y, touch.x_raw, touch.y_raw] # Pass touch coordinate values
+      - lvgl.label.update:                               # Update the touch information label
+          id: lbl_hint                                   # Select the touch hint label
+          text:                                          # Generate the label text dynamically
+            format: "Touch %d,%d"                        # Define the coordinate display format
+            args: [touch.x, touch.y]                     # Pass the touch coordinates
+    on_update:                                           # Define actions when touch data is updated
+      - lambda: |-                                       # Process the current touch data
+          for (auto touch: touches) {                    // Iterate through all active touch points
+            if (touch.state <= 2) {                      // Process active touch states
+              ESP_LOGI("touch_update", "id=%d state=%d x=%d y=%d raw_x=%d raw_y=%d",
+                       touch.id, touch.state, touch.x, touch.y, touch.x_raw, touch.y_raw); // Log touch information
+            }
+          }
+    on_release:                                          # Define actions when the touch is released
+      - logger.log: "Touch released"                     # Log the touch release event
+      - lvgl.label.update:                               # Update the touch hint label
+          id: lbl_hint                                   # Select the touch hint label
+          text: "Released"                               # Display the release message
+
+globals:
+  - id: brightness_value                                 # Define the global brightness variable
+    type: int                                             # Store the brightness as an integer
+    restore_value: false                                  # Do not restore the value after reboot
+    initial_value: "50"                                   # Set the initial brightness to 50
+  - id: encoder_ready                                    # Define the encoder initialization state
+    type: bool                                             # Store the state as a Boolean value
+    restore_value: false                                  # Do not restore the value after reboot
+    initial_value: "false"                                # Disable encoder processing initially
+
+output:
+  - platform: ledc                                       # Use the LEDC PWM output
+    pin: GPIO46                                          # Set GPIO46 as the backlight PWM pin
+    id: gpio_3_backlight_pwm                             # Assign an ID to the backlight PWM
+    frequency: 5000Hz                                    # Set the PWM frequency to 5 kHz
+  - platform: gpio                                       # Use a GPIO output
+    id: power_light                                      # Assign an ID to the power indicator output
+    pin: GPIO40                                          # Set GPIO40 as the output pin
+  - platform: gpio                                       # Use a GPIO output
+    id: out1                                              # Assign an ID to output 1
+    pin: GPIO1                                           # Set GPIO1 as the output pin
+  - platform: gpio                                       # Use a GPIO output
+    id: out2                                              # Assign an ID to output 2
+    pin: GPIO2                                           # Set GPIO2 as the output pin
+
+light:
+  - platform: monochromatic                              # Configure a monochromatic light
+    name: "Display Backlight"                             # Set the backlight name
+    output: gpio_3_backlight_pwm                          # Use the backlight PWM output
+    id: back_light                                        # Assign an ID to the backlight
+    restore_mode: ALWAYS_ON                               # Keep the backlight enabled after startup
+
+sensor:
+  - platform: rotary_encoder                              # Configure the rotary encoder sensor
+    id: knob                                               # Assign an ID to the encoder
+    name: "Encoder"                                        # Set the encoder name
+    pin_a:
+      number: GPIO45                                      # Set GPIO45 as encoder channel A
+      mode:
+        input: true                                        # Configure channel A as an input
+        pullup: true                                       # Enable the internal pull-up resistor
+    pin_b:
+      number: GPIO42                                      # Set GPIO42 as encoder channel B
+      mode:
+        input: true                                        # Configure channel B as an input
+        pullup: true                                       # Enable the internal pull-up resistor
+    resolution: 1                                          # Set the encoder resolution
+    filters:                                               # Configure encoder signal filters
+      - debounce: 20ms                                     # Apply 20 ms debounce filtering
+      - lambda: return round(x);                           # Round the encoder value to an integer
+    on_value:                                              # Define actions when the encoder value changes
+      then:
+        - lambda: |-                                       # Process the encoder movement
+            if (!id(encoder_ready)) return;                // Ignore encoder input before initialization
+
+            static bool first_run = true;                  // Track the first encoder update
+            static int last_encoder = 0;                   // Store the previous encoder position
+            const int current = (int) id(knob).state;      // Read the current encoder position
+
+            if (first_run) {                               // Handle the first encoder update
+              last_encoder = current;                      // Initialize the previous encoder position
+              first_run = false;                           // Mark the first update as completed
+              return;                                      // Exit without changing brightness
+            }
+
+            const int delta = current - last_encoder;     // Calculate the encoder movement
+            last_encoder = current;                        // Store the current encoder position
+            if (delta == 0) return;                        // Ignore unchanged encoder values
+
+            id(brightness_value) += delta > 0 ? 5 : -5;   // Change brightness by 5 percent
+            if (id(brightness_value) < 0) id(brightness_value) = 0;   // Limit brightness to 0 percent
+            if (id(brightness_value) > 100) id(brightness_value) = 100; // Limit brightness to 100 percent
+
+            id(gpio_3_backlight_pwm).set_level(id(brightness_value) / 100.0f); // Apply brightness to PWM
+        - lvgl.arc.update:                                 # Update the LVGL brightness arc
+            id: arc_brightness                             # Select the brightness arc
+            value: !lambda return id(brightness_value);    # Set the arc value from the brightness variable
+        - lvgl.label.update:                               # Update the brightness label
+            id: lbl_brightness                             # Select the brightness label
+            text:                                          # Generate the brightness text dynamically
+              format: "%d%%"                               # Define the percentage text format
+              args: [id(brightness_value)]                 # Pass the current brightness value
+
+binary_sensor:
+  - platform: touchscreen                                # Use touchscreen input as a binary sensor
+    name: "Screen Touch Active"                           # Set the binary sensor name
+    touchscreen_id: my_touchscreen                       # Use the configured touchscreen
+    x_min: 0                                               # Set the minimum X coordinate
+    x_max: 240                                             # Set the maximum X coordinate
+    y_min: 0                                               # Set the minimum Y coordinate
+    y_max: 240                                             # Set the maximum Y coordinate
+    on_press:                                             # Define the touch press action
+      - logger.log: "Full screen touch area pressed"      # Log the screen press event
+    on_release:                                          # Define the touch release action
+      - logger.log: "Full screen touch area released"    # Log the screen release event
+
+font:
+  - file: "gfonts://Montserrat"                            # Load the Montserrat font
+    id: montserrat_14                                     # Assign an ID to the 14 px font
+    size: 14                                               # Set the font size to 14 px
+  - file: "gfonts://Montserrat"                            # Load the Montserrat font
+    id: montserrat_20                                     # Assign an ID to the 20 px font
+    size: 20                                               # Set the font size to 20 px
+  - file: "gfonts://Montserrat"                            # Load the Montserrat font
+    id: montserrat_36                                     # Assign an ID to the 36 px font
+    size: 36                                               # Set the font size to 36 px
+
+lvgl:
+  displays:
+    - round_display                                        # Use the configured round display
+  touchscreens:
+    - touchscreen_id: my_touchscreen                      # Use the configured touchscreen
+  buffer_size: 25%                                         # Allocate 25 percent of the LVGL buffer
+  bg_color: 0x000000                                       # Set the LVGL background color to black
+  widgets:                                                 # Define the LVGL widgets
+    - obj:                                                 # Create the main circular background object
+        align: CENTER                                      # Center the object on the display
+        width: 240                                         # Set the object width
+        height: 240                                        # Set the object height
+        bg_color: 0x070707                                 # Set the object background color
+        bg_opa: "100%"                                     # Set the background opacity to 100 percent
+        border_width: 0                                    # Remove the object border
+        pad_all: 0                                         # Remove internal padding
+        radius: 120                                        # Set the object radius
+    - label:                                               # Create the title label
+        id: lbl_title                                      # Assign an ID to the title label
+        align: CENTER                                      # Center the label
+        y: -48                                             # Move the label upward by 48 pixels
+        text_font: montserrat_14                           # Use the 14 px Montserrat font
+        text: "Brightness"                                 # Set the title text
+        text_color: 0xFFFFFF                               # Set the text color to white
+    - arc:                                                 # Create the brightness adjustment arc
+        id: arc_brightness                                 # Assign an ID to the brightness arc
+        align: CENTER                                      # Center the arc
+        width: 176                                         # Set the arc width
+        height: 176                                        # Set the arc height
+        min_value: 0                                       # Set the minimum brightness value
+        max_value: 100                                     # Set the maximum brightness value
+        value: 50                                           # Set the initial brightness value
+        adjustable: true                                   # Allow the arc to be adjusted by touch
+        start_angle: 135                                   # Set the arc start angle
+        end_angle: 45                                      # Set the arc end angle
+        arc_color: 0x2C2C2C                                # Set the background arc color
+        arc_width: 14                                      # Set the background arc width
+        arc_rounded: true                                  # Enable rounded arc ends
+        indicator:                                          # Configure the active arc indicator
+          arc_color: 0x00D2FF                              # Set the indicator color
+          arc_width: 14                                    # Set the indicator width
+          arc_rounded: true                                # Enable rounded indicator ends
+        knob:                                               # Configure the arc adjustment knob
+          bg_color: 0xFFFFFF                               # Set the knob background color
+          bg_opa: "100%"                                   # Set the knob opacity to 100 percent
+          radius: 10                                       # Set the knob radius
+          pad_all: 3                                       # Set the knob internal padding
+        on_value:                                          # Define actions when the arc value changes
+          then:
+            - lambda: |-                                   # Update the brightness from the arc value
+                id(brightness_value) = lv_arc_get_value(id(arc_brightness)); // Read the current arc value
+                if (id(brightness_value) < 0) id(brightness_value) = 0;      // Limit brightness to 0 percent
+                if (id(brightness_value) > 100) id(brightness_value) = 100; // Limit brightness to 100 percent
+                id(gpio_3_backlight_pwm).set_level(id(brightness_value) / 100.0f); // Apply brightness to PWM
+            - lvgl.label.update:                           # Update the brightness label
+                id: lbl_brightness                         # Select the brightness label
+                text:                                      # Generate the brightness text dynamically
+                  format: "%d%%"                            # Define the percentage text format
+                  args: [id(brightness_value)]              # Pass the current brightness value
+    - label:                                               # Create the brightness value label
+        id: lbl_brightness                                  # Assign an ID to the brightness label
+        align: CENTER                                      # Center the label
+        text_font: montserrat_36                           # Use the 36 px Montserrat font
+        text: "50%"                                        # Set the initial brightness text
+        text_color: 0xFFFFFF                               # Set the text color to white
+    - label:                                               # Create the touch hint label
+        id: lbl_hint                                       # Assign an ID to the hint label
+        align: CENTER                                      # Center the label
+        y: 52                                              # Move the label downward by 52 pixels
+        text_font: montserrat_14                           # Use the 14 px Montserrat font
+        text: "Touch or rotate"                            # Set the initial hint text
+        text_color: 0x7A8490                               # Set the hint text color
