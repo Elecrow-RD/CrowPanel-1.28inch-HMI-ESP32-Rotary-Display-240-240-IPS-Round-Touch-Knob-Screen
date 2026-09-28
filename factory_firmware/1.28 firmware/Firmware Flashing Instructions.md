@@ -28,23 +28,6 @@ Flashing start address:
 
 `0x0`
 
-### Windows One-Click Script
-
-1. Connect the rotary screen using a USB cable that supports data transfer.
-2. Check the COM port assigned to the device in Windows Device Manager, for example `COM5`.
-3. Double-click `烧录合并固件.bat`.
-4. Enter the COM port and press Enter.
-5. Wait for the erase and write operations to complete. After `Hard resetting via RTS pin` or a success message appears, the device will restart automatically.
-
-If the device cannot enter download mode automatically:
-
-1. Press and hold the BOOT button on the device.
-2. Briefly press the RESET button once.
-3. Release the BOOT button.
-4. Run the flashing script again.
-
-If the 921600 baud rate is unstable, you can edit the script and change `921600` to `460800` or `115200`.
-
 ## Espressif Flash Download Tool
 
 When using the Espressif Flash Download Tool:
